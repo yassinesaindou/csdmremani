@@ -7,13 +7,14 @@ import { createServerClient } from "@/lib/supabase/server";
 
  
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { z } from "zod";
 
 const createUserSchema = z.object({
-  email: z.string().email("Email invalide"),
+  email: z.email("Email invalide"),
   password: z.string().min(6, "Le mot de passe doit contenir au moins 6 caractères"),
   fullName: z.string().min(2, "Le nom complet est requis"),
-  phoneNumber: z.string().min(10, "Numéro de téléphone invalide"),
+  phoneNumber: z.string().min(7, "Numéro de téléphone invalide"),
   role: z.string(),
   departmentId: z.string().uuid("ID du département invalide"),
 });
@@ -94,9 +95,8 @@ export async function createUser(formData: FormData) {
 
     if (assignmentError) throw assignmentError;
 
-    revalidatePath("/admin/users");
-    signOut(); // Sign out the current admin to refresh session
-    return { success: true };
+    await supabase.auth.signOut();
+    redirect('/login');
   } catch (error) {
     console.error("Error creating user:", error);
     return { 

@@ -8,9 +8,7 @@ import React, { useEffect, useState } from "react";
 
 import {
   Activity,
-  ActivitySquare,
   Baby,
-  BarChart3,
   Bed,
   Building,
   Calendar,
@@ -75,11 +73,17 @@ interface Department {
   }>;
 }
 
+interface UserDepartment {
+  departmentId: string;
+  departmentName: string;
+  departementName?: string; // Handle both spellings
+}
+
 export default function HospitalSideBar({
   ...props
 }: React.ComponentProps<typeof Sidebar>) {
   const [userRole, setUserRole] = useState<string | null>(null);
-  const [userDepartments, setUserDepartments] = useState<string[]>([]);
+  const [userDepartments, setUserDepartments] = useState<UserDepartment[]>([]);
   const [openDepartments, setOpenDepartments] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);
   
@@ -94,43 +98,73 @@ export default function HospitalSideBar({
   useEffect(() => {
     async function loadUserInfo() {
       setLoading(true);
-      const { data: { session } } = await supabase.auth.getSession();
+      try {
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
 
-      if (!session) {
-        router.push('/login');
-        return;
-      }
+        if (sessionError) {
+          console.error("Session error:", sessionError);
+          return;
+        }
 
-      // Get user role
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("role")
-        .eq("userId", session.user.id)
-        .single();
+        if (!session) {
+          console.log("No session, redirecting to login");
+          router.push('/login');
+          return;
+        }
 
-      if (profile) {
-        setUserRole(profile.role);
-      }
+        console.log("User session ID:", session.user.id);
 
-      // Get user departments from department_users table
-      const { data: departmentAssignments } = await supabase
-        .from("department_users")
-        .select(`
-          departments (
+        // Get user role and basic info
+        const { data: profile, error: profileError } = await supabase
+          .from("profiles")
+          .select("role, fullName, email")
+          .eq("userId", session.user.id)
+          .single();
+
+        if (profileError) {
+          console.error("Profile error:", profileError);
+        } else {
+          console.log("User profile:", profile);
+          setUserRole(profile.role);
+        }
+
+        // Get user departments - Using a simpler query
+        const { data: departmentAssignments, error: deptError } = await supabase
+          .from("department_users")
+          .select(`
             departmentId,
-            departementName
-          )
-        `)
-        .eq("userId", session.user.id);
+            departments (
+              departmentId,
+              departementName
+            )
+          `)
+          .eq("userId", session.user.id);
 
-      if (departmentAssignments) {
-        const deptIds = departmentAssignments
-          .map((assignment: any) => assignment.departments?.departmentId)
-          .filter(Boolean) as string[];
-        setUserDepartments(deptIds);
+        console.log("Department assignments response:", departmentAssignments);
+        console.log("Department error:", deptError);
+
+        if (departmentAssignments && departmentAssignments.length > 0) {
+          console.log("Found department assignments:", departmentAssignments.length);
+          
+          const departments: UserDepartment[] = departmentAssignments
+            .filter((assignment: any) => assignment.departments)
+            .map((assignment: any) => ({
+              departmentId: assignment.departments.departmentId,
+              departmentName: assignment.departments.departementName || assignment.departments.departmentName || "Unknown"
+            }));
+
+          console.log("Processed user departments:", departments);
+          setUserDepartments(departments);
+        } else {
+          console.log("No department assignments found");
+          setUserDepartments([]);
+        }
+
+      } catch (error) {
+        console.error("Error loading user info:", error);
+      } finally {
+        setLoading(false);
       }
-
-      setLoading(false);
     }
 
     loadUserInfo();
@@ -140,8 +174,8 @@ export default function HospitalSideBar({
   useEffect(() => {
     const currentPath = pathname;
     
-    // Map routes to departments
-    const departmentMap: Record<string, string> = {
+    // Map routes to sidebar department IDs
+    const routeToDeptId: Record<string, string> = {
       '/admin': 'admin',
       '/maternity': 'maternity',
       '/medecine': 'medecine',
@@ -155,7 +189,7 @@ export default function HospitalSideBar({
     };
 
     // Find which department this route belongs to
-    for (const [route, deptId] of Object.entries(departmentMap)) {
+    for (const [route, deptId] of Object.entries(routeToDeptId)) {
       if (currentPath.startsWith(route)) {
         setOpenDepartments(prev => ({ ...prev, [deptId]: true }));
         break;
@@ -164,7 +198,7 @@ export default function HospitalSideBar({
   }, [pathname]);
 
   async function handleLogout() {
-    await signOut();
+    await supabase.auth.signOut();
     router.push('/login');
   }
 
@@ -175,7 +209,7 @@ export default function HospitalSideBar({
     }));
   };
 
-  // Define all departments structure
+  // Define all possible departments
   const allDepartments: Department[] = [
     {
       id: "admin",
@@ -183,7 +217,6 @@ export default function HospitalSideBar({
       icon: UserCog,
       items: [
         { label: "Utilisateurs", href: "/admin/users", icon: Users },
-       
       ]
     },
     {
@@ -206,7 +239,6 @@ export default function HospitalSideBar({
       items: [
         { label: "Consultations", href: "/medecine/consultations", icon: FileText },
         { label: "Hospitalisations", href: "/medecine/hospitalizations", icon: Bed },
-       
       ]
     },
     {
@@ -238,7 +270,6 @@ export default function HospitalSideBar({
       items: [
         { label: "Enfants", href: "/vaccination/children", icon: Baby },
         { label: "Femmes Enceintes", href: "/vaccination/pregnant", icon: Heart },
-        
       ]
     },
     {
@@ -269,32 +300,105 @@ export default function HospitalSideBar({
       icon: Building,
       items: [
         { label: "Transactions", href: "/management/transactions", icon: DollarSign },
-        // { label: "Rapports", href: "/management/reports", icon: FileText },
-        // { label: "Statistiques", href: "/management/statistics", icon: BarChart3 },
-        // { label: "Inventaire", href: "/management/inventory", icon: ClipboardList },
       ]
     }
   ];
 
-  // Get departments that have been built
+  // Departments that are actually built/implemented
   const builtDepartments = ['admin', 'maternity', 'medecine', 'vaccination', 'management'];
 
-  // Filter departments based on user role and departments
-  const getUserDepartments = (): Department[] => {
-    if (loading) return [];
+  // Map database department names to sidebar department IDs
+  const mapDepartmentNameToId = (departmentName: string): string | null => {
+    const name = departmentName.toLowerCase().trim();
     
-    // Admin can see all built departments
+    const mapping: Record<string, string> = {
+      'administration': 'admin',
+      'administratif': 'admin',
+      'admin': 'admin',
+      
+      'maternité': 'maternity',
+      'maternite': 'maternity',
+      'maternity': 'maternity',
+      
+      'médecine': 'medecine',
+      'medecine': 'medecine',
+      'medicine': 'medecine',
+      
+      'pharmacie': 'pharmacy',
+      'pharmacy': 'pharmacy',
+      
+      'laboratoire': 'laboratory',
+      'laboratory': 'laboratory',
+      'labo': 'laboratory',
+      
+      'vaccination': 'vaccination',
+      'vaccin': 'vaccination',
+      
+      'nutrition': 'nutrition',
+      'dietetique': 'nutrition',
+      
+      'bloc opératoire': 'operating_room',
+      'bloc operatoire': 'operating_room',
+      'bloc': 'operating_room',
+      'salle opératoire': 'operating_room',
+      'salle operatoire': 'operating_room',
+      'operating room': 'operating_room',
+      'surgery': 'operating_room',
+      
+      'gestion': 'management',
+      'management': 'management',
+      'finance': 'management',
+      'comptabilité': 'management',
+      'comptabilite': 'management'
+    };
+    
+    return mapping[name] || null;
+  };
+
+  // Get accessible departments for the current user
+  const getAccessibleDepartments = (): Department[] => {
+    if (loading) {
+      return [];
+    }
+    
+    console.log("=== DEBUG: Determining accessible departments ===");
+    console.log("User role:", userRole);
+    console.log("User departments from DB:", userDepartments);
+    console.log("Total built departments:", builtDepartments);
+
+    // Admin users get access to all built departments
     if (userRole === 'admin') {
+      console.log("User is admin, showing all built departments");
       return allDepartments.filter(dept => builtDepartments.includes(dept.id));
     }
     
-    // Regular users: show only departments they belong to (that are built)
-    return allDepartments.filter(dept => 
-      userDepartments.includes(dept.id) && builtDepartments.includes(dept.id)
+    // Regular users: check their assigned departments
+    if (userDepartments.length === 0) {
+      console.log("User has no assigned departments");
+      return [];
+    }
+    
+    // Map user's department names to sidebar IDs
+    const userDeptIds = userDepartments
+      .map(dept => {
+        const mappedId = mapDepartmentNameToId(dept.departmentName);
+        console.log(`Mapping DB department "${dept.departmentName}" to ID: ${mappedId}`);
+        return mappedId;
+      })
+      .filter((id): id is string => id !== null && builtDepartments.includes(id));
+    
+    console.log("User's accessible department IDs:", userDeptIds);
+    
+    // Return departments that user has access to and are built
+    const accessibleDepts = allDepartments.filter(dept => 
+      userDeptIds.includes(dept.id) && builtDepartments.includes(dept.id)
     );
+    
+    console.log("Final accessible departments:", accessibleDepts.map(d => d.id));
+    return accessibleDepts;
   };
 
-  const userDepartmentsList = getUserDepartments();
+  const accessibleDepartments = getAccessibleDepartments();
 
   // Universal items accessible to everyone
   const universalItems = [
@@ -398,14 +502,14 @@ export default function HospitalSideBar({
           </SidebarMenu>
         </SidebarGroup>
 
-        {/* User's Departments */}
-        {userDepartmentsList.length > 0 && (
+        {/* User's Accessible Departments */}
+        {accessibleDepartments.length > 0 && (
           <SidebarGroup className="px-2 py-3">
             <SidebarGroupLabel className="text-xs font-semibold text-gray-500 uppercase tracking-wider px-2">
               {!isCollapsed && "Départements"}
             </SidebarGroupLabel>
             
-            {userDepartmentsList.map((department) => {
+            {accessibleDepartments.map((department) => {
               const Icon = department.icon;
               const isOpen = openDepartments[department.id] || false;
               const isActive = isDepartmentActive(department);
@@ -533,8 +637,8 @@ export default function HospitalSideBar({
               <p className="text-gray-500">
                 {userRole === 'admin' 
                   ? "Administrateur Système" 
-                  : userDepartmentsList.length > 0 
-                    ? `${userDepartmentsList.length} département(s)` 
+                  : accessibleDepartments.length > 0 
+                    ? `${accessibleDepartments.length} département(s)` 
                     : "Utilisateur"
                 }
               </p>

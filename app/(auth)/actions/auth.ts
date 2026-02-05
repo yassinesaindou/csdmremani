@@ -163,7 +163,7 @@ export async function signUp(formData: FormData) {
 export async function signOut() {
   const supabase = await createServerClient()
   await supabase.auth.signOut()
-  redirect('/auth/login')
+  redirect('login')
 }
 
 export async function resetPassword(formData: FormData) {
