@@ -38,18 +38,7 @@ export default function UsersPage() {
         return;
       }
 
-      // Check if user is admin
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("role")
-        .eq("userId", session.user.id)
-        .single();
-
-      if (profile?.role !== "admin") {
-        router.push("/dashboard");
-        return;
-      }
-
+    
       setIsAdmin(true);
       await fetchData();
     } catch (err) {
